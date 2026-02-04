@@ -129,6 +129,29 @@ def remove_link_at_index(chat_id: int, thread_id: int, index_1based: int) -> boo
         return True
 
 
+def rename_link_at_index(chat_id: int, thread_id: int, index_1based: int, new_title: str) -> bool:
+    """Меняет название кнопки по номеру (1, 2, 3...). Возвращает True, если изменено."""
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id FROM topic_links
+            WHERE chat_id = ? AND thread_id = ?
+            ORDER BY id ASC
+            """,
+            (chat_id, thread_id),
+        )
+        ids = [row[0] for row in cur.fetchall()]
+        if index_1based < 1 or index_1based > len(ids):
+            return False
+        cur.execute(
+            "UPDATE topic_links SET title = ? WHERE id = ?",
+            (new_title.strip(), ids[index_1based - 1]),
+        )
+        conn.commit()
+        return True
+
+
 def get_menu_message_id(chat_id: int, thread_id: int) -> int | None:
     with closing(sqlite3.connect(DB_PATH)) as conn:
         cur = conn.cursor()
@@ -262,9 +285,9 @@ async def cmd_start(message: types.Message):
         await message.answer(
             "Бот активирован.\n"
             " — <code>/add Название</code> — ответом на пост: добавить кнопку\n"
-            " — <code>/list</code> — список кнопок (номера для delete)\n"
-            " — <code>delete 1</code> — удалить кнопку №1\n"
-            " — <code>delete all</code> — удалить все кнопки в теме\n\n"
+            " — <code>/list</code> — список кнопок\n"
+            " — <code>rename 1 Новое название</code> — переименовать кнопку №1\n"
+            " — <code>delete 1</code> / <code>delete all</code> — удалить кнопку(и)\n\n"
             "Свой ID для прав админа: /myid"
         )
 
@@ -354,7 +377,12 @@ async def cmd_list(message: types.Message):
         await message.reply("В этой теме ещё нет кнопок.")
         return
 
-    lines = ["Кнопки в этой теме (для удаления: delete 1, delete 2, … или delete all):"]
+    lines = [
+        "Кнопки в этой теме:",
+        "— переименовать: rename 1 Новое название",
+        "— удалить: delete 1 или delete all",
+        "",
+    ]
     for idx, (title, url) in enumerate(links, start=1):
         lines.append(f"{idx}. {title} — {url}")
 
@@ -372,6 +400,54 @@ def _match_delete(text: str) -> str | None:
     if m:
         return m.group(1)
     return None
+
+
+def _match_rename(text: str) -> tuple[int, str] | None:
+    """Если текст вида 'rename 1 Новое название' — возвращает (номер, новое_название), иначе None."""
+    if not text or not isinstance(text, str):
+        return None
+    t = text.strip()
+    m = re.match(r"^rename\s+(\d+)\s+(.+)$", t, re.IGNORECASE)
+    if not m:
+        return None
+    num = int(m.group(1))
+    new_title = m.group(2).strip()
+    if not new_title:
+        return None
+    return (num, new_title)
+
+
+@dp.message(
+    F.chat.type.in_({ChatType.SUPERGROUP, ChatType.GROUP}),
+    F.text,
+    F.text.func(lambda t: _match_rename(t) is not None),
+)
+async def cmd_rename(message: types.Message):
+    """rename 1 Новое название — переименовать кнопку №1 (только в теме, только админ)."""
+    if not message.is_topic_message or message.message_thread_id is None:
+        return
+
+    if message.from_user and not is_admin(message.from_user.id):
+        await message.reply(
+            f"Только администратор бота может переименовывать кнопки. Ваш ID: <code>{message.from_user.id}</code> — проверьте ADMIN_IDS на Railway."
+        )
+        return
+
+    chat_id = message.chat.id
+    thread_id = message.message_thread_id
+    parsed = _match_rename(message.text)
+    if not parsed:
+        return
+    num, new_title = parsed
+
+    if rename_link_at_index(chat_id, thread_id, num, new_title):
+        await recreate_menu_in_topic(message, bot)
+        try:
+            await message.delete()
+        except TelegramBadRequest:
+            pass
+    else:
+        await message.reply(f"Кнопки с номером {num} нет. Номера смотрите в <code>/list</code>.")
 
 
 @dp.message(
