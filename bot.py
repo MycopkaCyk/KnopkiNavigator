@@ -288,7 +288,11 @@ async def cmd_add(message: types.Message, command: CommandObject):
         return
 
     if message.from_user and not is_admin(message.from_user.id):
-        await message.reply("Только администратор бота может добавлять кнопки.")
+        uid = message.from_user.id
+        await message.reply(
+            f"Только администратор бота может добавлять кнопки.\n\n"
+            f"Ваш ID: <code>{uid}</code>. Убедитесь, что в переменной ADMIN_IDS на Railway указано именно это число (без кавычек и пробелов)."
+        )
         return
 
     if not message.is_topic_message or message.message_thread_id is None:
@@ -333,7 +337,9 @@ async def cmd_list(message: types.Message):
         return
 
     if message.from_user and not is_admin(message.from_user.id):
-        await message.reply("Только администратор бота может просматривать список кнопок.")
+        await message.reply(
+            f"Только администратор бота может просматривать список кнопок. Ваш ID: <code>{message.from_user.id}</code> — проверьте ADMIN_IDS на Railway."
+        )
         return
 
     if not message.is_topic_message or message.message_thread_id is None:
@@ -379,7 +385,9 @@ async def cmd_delete(message: types.Message):
         return
 
     if message.from_user and not is_admin(message.from_user.id):
-        await message.reply("Только администратор бота может удалять кнопки.")
+        await message.reply(
+            f"Только администратор бота может удалять кнопки. Ваш ID: <code>{message.from_user.id}</code> — проверьте ADMIN_IDS на Railway."
+        )
         return
 
     chat_id = message.chat.id
